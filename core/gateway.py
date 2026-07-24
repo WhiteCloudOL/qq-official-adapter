@@ -13,6 +13,7 @@ from maibot_sdk import (
     CONFIG_RELOAD_SCOPE_SELF,
     MaiBotPlugin,
     MessageGateway,
+    ON_BOT_CONFIG_RELOAD,
     PluginConfigBase,
 )
 
@@ -47,6 +48,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
     """QQ 官方机器人 WebSocket 适配器插件。"""
 
     config_model: ClassVar[type[PluginConfigBase] | None] = QQOfficialAdapterSettings
+    config_reload_subscriptions: ClassVar[tuple[str, ...]] = (ON_BOT_CONFIG_RELOAD,)
 
     def __init__(self) -> None:
         """初始化适配器插件状态。"""
@@ -68,6 +70,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
         self._heartbeat_fail_count: int = 0
         self._connected_account_id: str = ""
         self._connected_account_name: str = ""
+        self._bot_display_name: str = ""
         self._bot_mention_ids: set[str] = set()
         self._passive_replies: Dict[str, PassiveReplyContext] = {}
         self._reply_sequences: Dict[str, int] = {}
@@ -78,6 +81,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
     async def on_load(self) -> None:
         """插件加载后按配置启动 WebSocket 连接。"""
 
+        await self._refresh_bot_profile()
         await self._restart_connection_if_needed()
 
     async def on_unload(self) -> None:
@@ -86,15 +90,27 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
         await self._stop_connection()
 
     async def on_config_update(self, scope: str, config_data: Dict[str, Any], version: str) -> None:
-        """配置更新后重启 WebSocket 连接。"""
+        """同步宿主机器人资料或重启 WebSocket 连接。"""
 
+        if scope == ON_BOT_CONFIG_RELOAD:
+            await self._refresh_bot_profile()
+            return
         if scope != CONFIG_RELOAD_SCOPE_SELF:
             return
 
-        self.set_plugin_config(config_data)
+        del config_data
         if version:
             self.ctx.logger.debug(f"QQ 官方适配器收到配置更新: {version}")
         await self._restart_connection_if_needed()
+
+    async def _refresh_bot_profile(self) -> None:
+        """通过 MaiBotSDK 同步机器人展示名称。"""
+
+        bot_nickname = await self.ctx.config.get("bot.nickname", "")
+        if not isinstance(bot_nickname, str):
+            raise TypeError("bot.nickname 必须是字符串")
+        self._bot_display_name = bot_nickname.strip()
+        self.ctx.logger.debug(f"QQ 官方适配器已同步机器人展示名: {self._bot_display_name or '<未设置>'}")
 
     @MessageGateway(
         name=QQ_OFFICIAL_GATEWAY_NAME,
@@ -163,9 +179,13 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
 
             external_message_id = last_external_id
         except Exception as exc:
-            self.ctx.logger.warning(f"QQ 官方出站消息发送失败: {type(exc).__name__}: {exc}", exc_info=True)
+            self.ctx.logger.error(f"QQ 官方出站消息发送失败: {type(exc).__name__}: {exc}", exc_info=True)
             return {"success": False, "error": str(exc)}
 
+        self.ctx.logger.debug(
+            f"QQ 官方出站消息发送成功: target_type={target.kind} "
+            f"target_id={target.target_id} external_message_id={external_message_id or '?'}"
+        )
         internal_message_id = str(message.get("message_id") or "").strip()
         adapter_callbacks: List[Dict[str, Any]] = []
         if internal_message_id and external_message_id and internal_message_id != external_message_id:
@@ -241,7 +261,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.ctx.logger.warning(
+                self.ctx.logger.error(
                     f"QQ 官方 WebSocket 连接异常，稍后重试: {type(exc).__name__}: {exc!r}",
                     exc_info=True,
                 )
@@ -249,7 +269,10 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
                 try:
                     await self._disconnect()
                 except Exception as cleanup_exc:
-                    self.ctx.logger.debug(f"QQ 官方 WebSocket 断开清理异常: {cleanup_exc!r}")
+                    self.ctx.logger.warning(
+                        f"QQ 官方 WebSocket 断开清理异常: {cleanup_exc!r}",
+                        exc_info=True,
+                    )
                 await self._report_gateway_ready(False)
 
             if self._stop_event is None or self._stop_event.is_set():
@@ -334,7 +357,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             },
         }
         await self._send_payload(payload)
-        self.ctx.logger.info("QQ 官方 WebSocket 已发送 Identify")
+        self.ctx.logger.debug("QQ 官方 WebSocket 已发送 Identify")
 
     async def _send_resume(self, settings: QQOfficialAdapterSettings) -> None:
         """发送 Resume 断线续传包。"""
@@ -354,7 +377,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             },
         }
         await self._send_payload(payload)
-        self.ctx.logger.info(f"QQ 官方 WebSocket 已发送 Resume: session_id={self._session_id} seq={self._last_seq}")
+        self.ctx.logger.debug(f"QQ 官方 WebSocket 已发送 Resume: session_id={self._session_id} seq={self._last_seq}")
 
     async def _run_heartbeat(self) -> None:
         """按固定间隔发送心跳。"""
@@ -375,6 +398,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
                     f"QQ 官方 WebSocket 心跳发送失败 ({self._heartbeat_fail_count}/{HEARTBEAT_FAIL_LIMIT}): {exc}"
                 )
                 if self._heartbeat_fail_count >= HEARTBEAT_FAIL_LIMIT:
+                    self.ctx.logger.error(f"QQ 官方 WebSocket 心跳连续失败 {HEARTBEAT_FAIL_LIMIT} 次，连接将被关闭")
                     if self._ws is not None and not self._ws.closed:
                         await self._ws.close()
                     return
@@ -392,8 +416,11 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             if ws_message.type == WSMsgType.BINARY:
                 self.ctx.logger.debug("QQ 官方 WebSocket 收到二进制消息，已忽略")
                 continue
-            if ws_message.type in {WSMsgType.CLOSED, WSMsgType.ERROR}:
-                self.ctx.logger.warning("QQ 官方 WebSocket 连接已关闭或出错")
+            if ws_message.type == WSMsgType.ERROR:
+                self.ctx.logger.error(f"QQ 官方 WebSocket 接收失败: {self._ws.exception()!r}")
+                break
+            if ws_message.type == WSMsgType.CLOSED:
+                self.ctx.logger.warning(f"QQ 官方 WebSocket 连接已关闭: close_code={self._ws.close_code}")
                 break
 
     async def _handle_text_payload(self, raw_payload: str) -> None:
@@ -405,6 +432,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             self.ctx.logger.warning(f"QQ 官方 WebSocket 收到非 JSON 文本: {raw_payload[:120]}")
             return
         if not isinstance(payload, dict):
+            self.ctx.logger.warning(f"QQ 官方 WebSocket 收到非对象 JSON: type={type(payload).__name__}")
             return
 
         op = payload.get("op")
@@ -443,6 +471,9 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
         event_type = str(payload.get("t") or "").strip()
         data = payload.get("d") or {}
         if not isinstance(data, Mapping):
+            self.ctx.logger.warning(
+                f"QQ 官方 Dispatch 事件数据格式无效: event={event_type or '?'} type={type(data).__name__}"
+            )
             return
 
         if event_type == EVENT_READY:
@@ -515,7 +546,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             if additional_config.get("qq_official_message_type") == "group":
                 scope_label = f" 群={group_info.get('group_id') or '?'}"
             plain_text = str(message_dict.get("processed_plain_text") or "")[:60]
-            self.ctx.logger.info(
+            self.ctx.logger.debug(
                 f"收到 QQ 官方入站消息: event={event_type} id={external_message_id or '?'} "
                 f"from={sender_label}{scope_label} text={plain_text!r}"
             )
@@ -629,5 +660,5 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
                 metadata=metadata,
             )
         except Exception as exc:
-            self.ctx.logger.warning(f"QQ 官方消息网关状态上报失败: {exc}")
+            self.ctx.logger.error(f"QQ 官方消息网关状态上报失败: {exc}", exc_info=True)
             return False

@@ -315,6 +315,7 @@ class QQAPIClientMixin:
             file_name=file_name,
         )
         if status == 401:
+            self.ctx.logger.debug(f"QQ {operation}返回 401，刷新 access_token 后重试")
             self._access_token = ""
             await self._get_access_token()
             status, response_text = await self._post_multipart_once(

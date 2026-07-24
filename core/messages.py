@@ -25,6 +25,7 @@ from .constants import (
     INBOUND_MESSAGE_DEDUP_TTL_SEC,
     MAX_INBOUND_MEDIA_BYTES,
     PRIVATE_PASSIVE_REPLY_TTL_SEC,
+    TRUSTED_QQ_MEDIA_HOSTS,
 )
 from .models import OutboundMedia, PassiveReplyContext, QQMessageTarget
 
@@ -98,7 +99,12 @@ class QQMessageMixin:
         is_guild = event_type in {EVENT_AT_MESSAGE_CREATE, EVENT_MESSAGE_CREATE}
         is_guild_direct = event_type == EVENT_DIRECT_MESSAGE_CREATE
         is_at = self._is_bot_mentioned(event_type, data, content)
-        content = self._remove_bot_mention_tokens(content) if is_at else content
+        mention_target_id = ""
+        mention_display_name = ""
+        if is_at:
+            content = self._remove_bot_mention_tokens(content)
+            mention_target_id = self._resolve_bot_mention_target_id(data)
+            mention_display_name = self._bot_display_name or self._connected_account_name or mention_target_id
 
         if is_qq_group or is_guild:
             if is_guild:
@@ -184,13 +190,25 @@ class QQMessageMixin:
             content = ""
 
         raw_message: List[Dict[str, Any]] = []
+        if is_at and mention_target_id:
+            raw_message.append(
+                {
+                    "type": "at",
+                    "data": {
+                        "target_user_id": mention_target_id,
+                        "target_user_nickname": mention_display_name or None,
+                        "target_user_cardname": None,
+                    },
+                }
+            )
         if content:
             raw_message.append({"type": "text", "data": content})
         raw_message.extend(attachment_segments)
         if not raw_message:
             raise ValueError(f"{event_type} 消息既没有文本，也没有可处理的附件")
 
-        processed_parts = [part for part in [content, *attachment_labels] if part]
+        mention_text = f"@{mention_display_name}" if is_at and mention_display_name else ""
+        processed_parts = [part for part in [mention_text, content, *attachment_labels] if part]
         processed_plain_text = " ".join(processed_parts).strip()
         message_reference = data.get("message_reference")
         reply_to = ""
@@ -338,6 +356,61 @@ class QQMessageMixin:
             if identity_value:
                 self._bot_mention_ids.add(identity_value)
 
+    def _resolve_bot_mention_target_id(self, data: Mapping[str, Any]) -> str:
+        """提取当前事件中指向本机器人的场景 OpenID。"""
+
+        bot_ids = self._known_bot_ids()
+        mentions = data.get("mentions")
+        if isinstance(mentions, list):
+            for mention in mentions:
+                if not isinstance(mention, Mapping) or not self._is_current_bot_identity(mention):
+                    continue
+                self._remember_bot_identity(mention)
+                for key in ("id", "openid", "user_openid", "member_openid"):
+                    mention_id = str(mention.get(key) or "").strip()
+                    if mention_id:
+                        return mention_id
+
+        element_target_id = self._find_bot_mention_target_id(data.get("msg_elements"), bot_ids)
+        if element_target_id:
+            return element_target_id
+        return self._connected_account_id or self._load_settings().credentials.appid
+
+    @classmethod
+    def _find_bot_mention_target_id(cls, value: Any, bot_ids: set[str]) -> str:
+        """从 msg_elements 树中提取指向当前机器人的 @ 目标。"""
+
+        if isinstance(value, list):
+            for item in value:
+                target_id = cls._find_bot_mention_target_id(item, bot_ids)
+                if target_id:
+                    return target_id
+            return ""
+        if not isinstance(value, Mapping):
+            return ""
+
+        element_type = str(value.get("type") or value.get("element_type") or "").lower()
+        looks_like_mention = "at" in element_type or "mention" in element_type
+        target_keys = ("id", "openid", "user_id", "target_id", "member_openid")
+        if looks_like_mention:
+            for key in target_keys:
+                target_id = str(value.get(key) or "").strip()
+                if target_id in bot_ids:
+                    return target_id
+
+        for key, raw_value in value.items():
+            normalized_key = str(key).lower()
+            if ("at" in normalized_key or "mention" in normalized_key) and isinstance(raw_value, Mapping):
+                for target_key in target_keys:
+                    target_id = str(raw_value.get(target_key) or "").strip()
+                    if target_id in bot_ids:
+                        return target_id
+            if isinstance(raw_value, (list, Mapping)):
+                target_id = cls._find_bot_mention_target_id(raw_value, bot_ids)
+                if target_id:
+                    return target_id
+        return ""
+
     @classmethod
     def _mapping_tree_mentions_bot(cls, value: Any, bot_ids: set[str]) -> bool:
         """递归检查未文档化 msg_elements 中的 @ 目标字段。"""
@@ -415,6 +488,7 @@ class QQMessageMixin:
         contains_emoji = False
         content_hint = str(data.get("content") or "").strip()
         has_emoji_element = self._mapping_tree_has_emoji(data.get("msg_elements"))
+        has_single_inline_emoji_attachment = len(attachments) == 1 and bool(_QQ_FACE_TAG_PATTERN.search(content_hint))
         for attachment in attachments:
             if not isinstance(attachment, Mapping):
                 continue
@@ -426,6 +500,7 @@ class QQMessageMixin:
                 attachment_type in {"emoji", "face", "sticker"}
                 or bool(attachment.get("is_emoji"))
                 or has_emoji_element
+                or has_single_inline_emoji_attachment
                 or content_hint in {"[表情]", "[动画表情]"}
             )
 
@@ -436,18 +511,18 @@ class QQMessageMixin:
                     segments.append(
                         {
                             "type": segment_type,
-                            "data": "[表情]" if is_emoji_attachment else "[图片]",
+                            "data": "",
                             "binary_data_base64": base64.b64encode(binary_data).decode("ascii"),
                             "hash": sha256(binary_data).hexdigest(),
                         }
                     )
-                    is_picture = True
+                    is_picture = is_picture or not is_emoji_attachment
                 elif url or filename:
-                    self.ctx.logger.warning(f"QQ 入站图片下载失败，保留附件链接: {urlsplit(url).netloc}")
+                    self.ctx.logger.debug(f"QQ 入站图片已降级为媒体摘要: {urlsplit(url).netloc}")
                     segments.append(
                         {
-                            "type": "file",
-                            "data": self._build_file_payload(attachment, content_type, url),
+                            "type": segment_type,
+                            "data": "[表情]" if is_emoji_attachment else "[图片]",
                         }
                     )
                 labels.append("[表情]" if is_emoji_attachment else "[图片]")
@@ -549,18 +624,22 @@ class QQMessageMixin:
         parsed_url = urlsplit(url)
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
             raise RuntimeError("QQ 附件 URL 不是有效的 HTTP(S) 地址")
+        normalized_hostname = parsed_url.hostname.lower()
+        if parsed_url.scheme == "https" and normalized_hostname in TRUSTED_QQ_MEDIA_HOSTS:
+            # TUN 代理的 Fake-IP 模式会把 QQ 官方媒体域名映射到保留地址。
+            return
         try:
-            addresses = [ipaddress.ip_address(parsed_url.hostname)]
+            addresses = [ipaddress.ip_address(normalized_hostname)]
         except ValueError:
             loop = asyncio.get_running_loop()
             try:
                 address_info = await loop.getaddrinfo(
-                    parsed_url.hostname,
+                    normalized_hostname,
                     parsed_url.port or (443 if parsed_url.scheme == "https" else 80),
                     type=socket.SOCK_STREAM,
                 )
             except socket.gaierror as exc:
-                raise RuntimeError(f"无法解析 QQ 附件域名: {parsed_url.hostname}") from exc
+                raise RuntimeError(f"无法解析 QQ 附件域名: {normalized_hostname}") from exc
             addresses = [ipaddress.ip_address(item[4][0]) for item in address_info]
 
         if not addresses or any(
@@ -609,7 +688,7 @@ class QQMessageMixin:
             return False
 
         if user_id in settings.chat.ban_user_id:
-            self.ctx.logger.warning(f"QQ 官方用户 {user_id} 在全局禁止名单中，消息已丢弃")
+            self.ctx.logger.info(f"QQ 官方用户 {user_id} 在全局禁止名单中，消息已丢弃")
             return False
 
         if not settings.chat.enable_chat_list_filter:
@@ -625,14 +704,14 @@ class QQMessageMixin:
                 group_openid, settings.chat.group_list_type, settings.chat.group_list
             )
             if not allowed and settings.chat.show_dropped_chat_list_messages:
-                self.ctx.logger.warning(f"QQ 官方群聊 {group_openid} 未通过聊天名单过滤，消息已丢弃")
+                self.ctx.logger.info(f"QQ 官方群聊 {group_openid} 未通过聊天名单过滤，消息已丢弃")
             return allowed
 
         allowed = self._is_id_allowed_by_list_policy(
             user_id, settings.chat.private_list_type, settings.chat.private_list
         )
         if not allowed and settings.chat.show_dropped_chat_list_messages:
-            self.ctx.logger.warning(f"QQ 官方私聊用户 {user_id} 未通过聊天名单过滤，消息已丢弃")
+            self.ctx.logger.info(f"QQ 官方私聊用户 {user_id} 未通过聊天名单过滤，消息已丢弃")
         return allowed
 
     @staticmethod
