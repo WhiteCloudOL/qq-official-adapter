@@ -925,7 +925,9 @@ class QQMessageMixin:
                 else:
                     target_user_id = str(data or "").strip()
                 if target_user_id:
-                    parts.append(f"<@{target_user_id}>")
+                    # QQ 官方 @ 某人的现行协议是 <qqbot-at-user id="" />；
+                    # 旧的 <@userid> 协议即将弃用，客户端已不再解析，会显示成字面量。
+                    parts.append(f'<qqbot-at-user id="{target_user_id}" />')
         if parts:
             return "".join(parts).strip()
         if segments:
