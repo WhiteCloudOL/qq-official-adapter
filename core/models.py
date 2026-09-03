@@ -5,6 +5,7 @@ from typing import Literal, Tuple
 
 
 _MAX_QQ_IDENTIFIER_LENGTH = 256
+_QQ_IDENTIFIER_ATTRIBUTE_SENSITIVE_CHARS = frozenset({'"', "'", "<", ">", "&"})
 
 
 def _validate_qq_identifier(value: str, field_name: str) -> None:
@@ -18,6 +19,8 @@ def _validate_qq_identifier(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} 长度不能超过 {_MAX_QQ_IDENTIFIER_LENGTH}")
     if any(ord(character) < 32 or ord(character) == 127 for character in value):
         raise ValueError(f"{field_name} 不能包含控制字符")
+    if any(character in _QQ_IDENTIFIER_ATTRIBUTE_SENSITIVE_CHARS for character in value):
+        raise ValueError(f"{field_name} 不能包含标签属性敏感字符")
 
 
 @dataclass(frozen=True)
