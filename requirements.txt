@@ -1,2 +1,2 @@
 aiohttp>=3.8.0
-maibot-plugin-sdk>=2.7.0,<3.0.0
+maibot-plugin-sdk>=2.8.0

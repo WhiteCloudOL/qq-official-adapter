@@ -317,17 +317,17 @@ class QQOfficialMessageSection(PluginConfigBase):
     __ui_order__: ClassVar[int] = 2
 
     enable_markdown_output: bool = Field(
-        default=True,
-        description="出站消息使用 markdown 格式输出。",
+        default=False,
+        description="群聊与单聊的普通文本回复是否使用 Markdown 格式输出。",
         json_schema_extra={
-            "hint": "开启后端到 QQ 的消息统一走 markdown(msg_type=2) 通道，使所有 markdown 内容（含「@ 用户」内嵌标签、加粗、列表等）都能被客户端正确解析；关闭后走纯文本(msg_type=0)。",
+            "hint": "默认关闭。开启后群聊与单聊的普通文本回复改用 Markdown（msg_type=2）；频道、频道私信和显式结构化消息不受此开关影响。",
             "i18n": _schema_i18n(
-                label_en="Enable markdown output",
-                label_ja="マークダウン出力を有効化",
-                hint_en="When on, outbound messages go through the markdown (msg_type=2) channel and all markdown content (including '@ user' inline tags) is parsed; when off, they go as plain text (msg_type=0).",
-                hint_ja="オンの場合、送信メッセージはマークダウン (msg_type=2) チャネル経由で送信され、すべてのマークダウン（@ユーザーのインラインタグを含む）が解析されます。オフの場合はプレーンテキスト (msg_type=0) で送信されます。",
+                label_en="Enable Markdown output",
+                label_ja="Markdown 出力を有効化",
+                hint_en="Disabled by default. When enabled, regular group and C2C text replies use Markdown (msg_type=2); guild, direct, and explicit structured messages are unchanged.",
+                hint_ja="既定では無効です。有効にすると、グループと C2C の通常テキスト返信は Markdown（msg_type=2）を使用します。チャンネル、チャンネル DM、明示的な構造化メッセージには影響しません。",
             ),
-            "label": "启用 markdown 输出",
+            "label": "启用 Markdown 输出",
             "order": 0,
         },
     )

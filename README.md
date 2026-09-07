@@ -7,8 +7,8 @@
 <p align="center"><strong>基于 QQ 官方能力，为 MaiBot 提供单聊、群聊与频道消息接入</strong></p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.1.6-2388ff">
-  <img alt="MaiBot SDK" src="https://img.shields.io/badge/MaiBot_SDK-2.7%2B-2f8f9d">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-2388ff">
+  <img alt="MaiBot SDK" src="https://img.shields.io/badge/MaiBot_SDK-2.8%2B-2f8f9d">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab">
   <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-59636e">
 </p>
@@ -22,6 +22,7 @@
 - 在 QQ 单聊、群聊、文字子频道和频道私信中使用 MaiBot。
 - 接收文字、图片、表情、语音、视频和文件，并保留可供 MaiBot 使用的媒体内容。
 - 发送文字、图片和表情；表情会按图片消息发送，不会显示为无效的 `[表情]` 文本。
+- 群聊与单聊可按需启用 Markdown 输出，默认继续使用普通文本消息。
 - 自动判断群聊消息是否真正艾特当前机器人，无需在插件配置里重复填写机器人 ID。
 - 自动读取 MaiBot 的机器人昵称，并在聊天上下文中保留 `@机器人昵称`，避免艾特信息丢失。
 - 自动处理重复事件、短时断线和被动回复时效，减少重复回复与串群回复。
@@ -50,9 +51,10 @@
 | 启用适配器 | 开启 |
 | AppID | QQ 开放平台显示的 AppID |
 | AppSecret | 与 AppID 对应的 AppSecret |
-| 启用 markdown 输出 | 开启 |
 
 聊天名单过滤默认关闭，不配置即可正常使用。需要限制允许接入的群或用户时，再启用“聊天过滤”并填写 QQ 官方 OpenID（注意这里不是单纯的群号和QQ号，请根据实际日志显示的OpenID填写）。
+
+群聊与单聊默认使用普通文本消息（`msg_type=0`），原有发送路径保持不变。如需渲染标题、列表、粗体等 Markdown 格式，可在“消息发送”中开启“启用 Markdown 输出”；开启后仅这两类普通文本回复改用 `msg_type=2`。两条路径使用各自的数据结构和长度校验，频道、频道私信与显式结构化消息不受该开关影响。
 
 ### 4. 设置 MaiBot 主账号
 
@@ -114,6 +116,8 @@ qq_account = "日志中的 self_id"
 | 频道私信 | 文字及附件 | 文字、图片、Markdown、Ark、Embed |
 
 QQ群与单聊中的表情使用图片富媒体发送。纯图片或纯表情回复不会再额外发送 `[图片]`、`[表情]` 占位文字。入站图片和表情会保留原始二进制供 MaiBot 识别；下载失败时降级为对应的媒体摘要，普通文件仍保留文件信息。
+
+QQ 官方同时允许普通文本与 Markdown 消息使用 `<qqbot-at-user id="..." />` 表示艾特用户，因此艾特能力不要求开启 Markdown。Markdown 输出是可选的展示能力；插件为该路径设置 4000 字符上限，普通文本仍沿用原有 20000 字符上限。
 
 MaiBot 对首次出现的图片采用后台识别：适配器收到图片后会先上报媒体组件，图片描述生成完成后再补入聊天上下文；已经识别过的相同图片会直接使用缓存描述。
 
@@ -188,6 +192,8 @@ qq-official-adapter/
 - [QQ 官方群聊消息事件](https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_message_create.html)
 - [QQ 官方群聊消息发送](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html)
 - [QQ 官方消息类型](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/overview.html)
+- [QQ 官方 Markdown 消息](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/markdown.html)
+- [QQ 官方文本交互](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html)
 - [MaiBot 插件开发指南](https://docs.mai-mai.org/plugin/)
 - [MaiBot 消息网关](https://docs.mai-mai.org/plugin/message-gateway)
 - [MaiBot 消息服务器与适配器](https://docs.mai-mai.org/develop/message-server-and-adapters)

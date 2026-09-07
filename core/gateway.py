@@ -159,15 +159,11 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
 
             last_external_id = ""
             if content:
-                # QQ 官方要求出站消息走 markdown(msg_type=2) 通道，所有 markdown 内容
-                # （含「@ 用户」内嵌标签、加粗、列表等）才能被客户端正确解析；
-                # 纯文本(msg_type=0)会把 <qqbot-at-user ... /> 原样显示。
-                # 频道/频道私信不走 REST 文本接口，仍维持文本通道。
                 if settings.message.enable_markdown_output and target.kind in {"group", "user"}:
-                    last_external_id = await self._send_structured_message(
+                    last_external_id = await self._send_markdown(
                         settings,
                         target=target,
-                        payload={"msg_type": 2, "markdown": {"content": content}},
+                        content=content,
                         reply_msg_id=reply_msg_id,
                     )
                 else:
