@@ -7,7 +7,7 @@
 <p align="center"><strong>基于 QQ 官方能力，为 MaiBot 提供单聊、群聊与频道消息接入</strong></p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.1.5-2388ff">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.6-2388ff">
   <img alt="MaiBot SDK" src="https://img.shields.io/badge/MaiBot_SDK-2.7%2B-2f8f9d">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab">
   <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-59636e">

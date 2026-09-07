@@ -32,7 +32,7 @@ from .constants import (
     TRUSTED_QQ_MEDIA_HOSTS,
     TRUSTED_QQ_MEDIA_HOST_SUFFIXES,
 )
-from .models import OutboundMedia, PassiveReplyContext, QQMessageTarget
+from .models import _validate_qq_identifier, OutboundMedia, PassiveReplyContext, QQMessageTarget
 
 
 _QQ_ATTACHMENT_TAG_PATTERN = re.compile(r"<attachmentType=.*?>", re.IGNORECASE)
@@ -288,10 +288,9 @@ class QQMessageMixin:
         if not isinstance(value, str):
             raise ValueError(f"{field_name} 必须是字符串")
         normalized_value = value.strip()
-        if len(normalized_value) > 256:
-            raise ValueError(f"{field_name} 长度不能超过 256")
-        if any(ord(character) < 32 or ord(character) == 127 for character in normalized_value):
-            raise ValueError(f"{field_name} 不能包含控制字符")
+        if not normalized_value:
+            return ""
+        _validate_qq_identifier(normalized_value, field_name)
         return normalized_value
 
     @classmethod
@@ -921,11 +920,14 @@ class QQMessageMixin:
             elif seg_type == "at":
                 data = segment.get("data")
                 if isinstance(data, Mapping):
-                    target_user_id = str(data.get("target_user_id") or "").strip()
+                    target_user_id = data.get("target_user_id")
                 else:
-                    target_user_id = str(data or "").strip()
+                    target_user_id = data
+                target_user_id = QQMessageMixin._normalize_qq_identifier(target_user_id, "艾特目标用户 ID")
                 if target_user_id:
-                    parts.append(f"<@{target_user_id}>")
+                    # QQ 官方 @ 某人的现行协议是 <qqbot-at-user id="" />；
+                    # 旧的 <@userid> 协议即将弃用，客户端已不再解析，会显示成字面量。
+                    parts.append(f'<qqbot-at-user id="{target_user_id}" />')
         if parts:
             return "".join(parts).strip()
         if segments:
