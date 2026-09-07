@@ -22,6 +22,7 @@ from .constants import (
     DEFAULT_ACTION_TIMEOUT_SEC,
     MAX_API_RESPONSE_BYTES,
     MAX_GROUP_PASSIVE_REPLIES_PER_MESSAGE,
+    MAX_OUTBOUND_MARKDOWN_CHARS,
     MAX_OUTBOUND_MEDIA_BYTES,
     MAX_OUTBOUND_TEXT_CHARS,
     MAX_PRIVATE_PASSIVE_REPLIES_PER_MESSAGE,
@@ -219,6 +220,36 @@ class QQAPIClientMixin:
             self._message_url(base_url, target),
             body,
             operation="发送结构化消息",
+        )
+        return self._parse_send_data(response_data)
+
+    async def _send_markdown(
+        self,
+        settings: QQOfficialAdapterSettings,
+        *,
+        target: QQMessageTarget,
+        content: str,
+        reply_msg_id: str,
+    ) -> str:
+        """向 QQ 群聊或单聊发送自定义 Markdown，返回平台消息 ID。"""
+
+        if target.kind not in {"group", "user"}:
+            raise ValueError("QQ Markdown 输出开关仅适用于群聊与单聊")
+        if not content:
+            raise ValueError("QQ 出站 Markdown 内容为空")
+        if len(content) > MAX_OUTBOUND_MARKDOWN_CHARS:
+            raise ValueError(f"QQ 出站 Markdown 超过 {MAX_OUTBOUND_MARKDOWN_CHARS} 字符限制")
+
+        body: Dict[str, Any] = {
+            "msg_type": 2,
+            "markdown": {"content": content},
+        }
+        await self._add_reply_fields(body, target, reply_msg_id)
+        base_url = API_BASE_SANDBOX if settings.credentials.sandbox else API_BASE_PRODUCTION
+        response_data = await self._post_json(
+            self._message_url(base_url, target),
+            body,
+            operation="发送 Markdown 消息",
         )
         return self._parse_send_data(response_data)
 

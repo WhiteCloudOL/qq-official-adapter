@@ -1,12 +1,12 @@
 [project]
 name = "qq-official-adapter"
-version = "1.1.6"
+version = "1.2.0"
 description = "MaiBot adapter for the official QQ Bot API"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.8.0",
-    "maibot-plugin-sdk>=2.7.0,<3.0.0",
+    "maibot-plugin-sdk>=2.8.0",
 ]
 
 [project.optional-dependencies]

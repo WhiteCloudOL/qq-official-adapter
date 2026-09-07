@@ -159,12 +159,20 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
 
             last_external_id = ""
             if content:
-                last_external_id = await self._send_text(
-                    settings,
-                    target=target,
-                    content=content,
-                    reply_msg_id=reply_msg_id,
-                )
+                if settings.message.enable_markdown_output and target.kind in {"group", "user"}:
+                    last_external_id = await self._send_markdown(
+                        settings,
+                        target=target,
+                        content=content,
+                        reply_msg_id=reply_msg_id,
+                    )
+                else:
+                    last_external_id = await self._send_text(
+                        settings,
+                        target=target,
+                        content=content,
+                        reply_msg_id=reply_msg_id,
+                    )
 
             for media in media_list:
                 external_id = await self._send_media(

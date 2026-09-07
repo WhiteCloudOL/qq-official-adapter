@@ -310,11 +310,35 @@ class QQOfficialChatSection(PluginConfigBase):
         return normalized_values
 
 
+class QQOfficialMessageSection(PluginConfigBase):
+    """消息发送行为配置。"""
+
+    __ui_label__: ClassVar[str] = "消息发送"
+    __ui_order__: ClassVar[int] = 2
+
+    enable_markdown_output: bool = Field(
+        default=False,
+        description="群聊与单聊的普通文本回复是否使用 Markdown 格式输出。",
+        json_schema_extra={
+            "hint": "默认关闭。开启后群聊与单聊的普通文本回复改用 Markdown（msg_type=2）；频道、频道私信和显式结构化消息不受此开关影响。",
+            "i18n": _schema_i18n(
+                label_en="Enable Markdown output",
+                label_ja="Markdown 出力を有効化",
+                hint_en="Disabled by default. When enabled, regular group and C2C text replies use Markdown (msg_type=2); guild, direct, and explicit structured messages are unchanged.",
+                hint_ja="既定では無効です。有効にすると、グループと C2C の通常テキスト返信は Markdown（msg_type=2）を使用します。チャンネル、チャンネル DM、明示的な構造化メッセージには影響しません。",
+            ),
+            "label": "启用 Markdown 输出",
+            "order": 0,
+        },
+    )
+
+
 class QQOfficialAdapterSettings(PluginConfigBase):
     """QQ 官方机器人适配器完整配置。"""
 
     plugin: QQOfficialPluginSection = Field(default_factory=QQOfficialPluginSection)
     credentials: QQOfficialCredentialsSection = Field(default_factory=QQOfficialCredentialsSection)
+    message: QQOfficialMessageSection = Field(default_factory=QQOfficialMessageSection)
     chat: QQOfficialChatSection = Field(default_factory=QQOfficialChatSection)
 
     def should_connect(self) -> bool:
