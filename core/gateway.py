@@ -67,6 +67,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
         self._ws: Optional[ClientWebSocketResponse] = None
         self._connection_task: Optional[asyncio.Task[None]] = None
         self._stop_event: Optional[asyncio.Event] = None
+        self._connection_settings: Optional[QQOfficialAdapterSettings] = None
         self._session_id: str = ""
         self._last_seq: Optional[int] = None
         self._heartbeat_interval_ms: int = 0
@@ -93,6 +94,8 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
         """插件卸载前关闭 WebSocket 连接并清理资源。"""
 
         await self._stop_connection()
+        await self._reset_connection_identity()
+        self._connection_settings = None
 
     async def on_config_update(self, scope: str, config_data: Dict[str, Any], version: str) -> None:
         """同步宿主机器人资料或重启 WebSocket 连接。"""
@@ -233,8 +236,12 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
     async def _restart_connection_if_needed(self) -> None:
         """根据当前配置重启 WebSocket 连接循环。"""
 
+        previous_settings = self._connection_settings
         await self._stop_connection()
         settings = self._load_settings()
+        if previous_settings is None or previous_settings.credentials != settings.credentials or not settings.should_connect():
+            await self._reset_connection_identity()
+        self._connection_settings = settings
         if not settings.should_connect():
             self.ctx.logger.info("QQ 官方适配器保持空闲状态，因为插件未启用")
             return
@@ -262,9 +269,24 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             self._connection_task = None
 
         await self._disconnect()
-        await self._report_gateway_ready(False, settings=self._load_settings())
-        # 保留 READY 事件里的机器人用户 ID。配置重载会停掉连接，但 session 仍可 Resume；
-        # 清空后下一次 RESUMED 没有真实身份，会把 AppID 当成新的 Bot 账号上报。
+        await self._report_gateway_ready(False, settings=self._connection_settings or self._load_settings())
+        # 相同凭据的重连仍可 Resume，保留 READY 取得的真实机器人 ID。
+
+    async def _reset_connection_identity(self) -> None:
+        """新凭据或停用时，不继承之前身份的会话、令牌和回复上下文。"""
+
+        self._session_id = ""
+        self._last_seq = None
+        self._resumable = False
+        self._connected_account_id = ""
+        self._connected_account_name = ""
+        self._bot_mention_ids.clear()
+        self._passive_replies.clear()
+        self._reply_sequences.clear()
+        self._seen_inbound_message_ids.clear()
+        async with self._token_lock:
+            self._access_token = None
+            self._access_token_expire_at = 0.0
 
     async def _run_connection_loop(self) -> None:
         """维持到 QQ 官方 WebSocket 网关的连接。"""
@@ -390,7 +412,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
         self._heartbeat_ack_pending = False
         self._heartbeat_task = asyncio.create_task(self._run_heartbeat(), name="qq-official-heartbeat")
 
-        if self._resumable and self._session_id:
+        if self._resumable and self._session_id and self._connected_account_id:
             await self._send_resume()
         else:
             await self._send_identify()
@@ -566,12 +588,24 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             return
 
         if event_type == EVENT_RESUMED:
+            if not self._connected_account_id:
+                self.ctx.logger.warning("QQ 官方 WebSocket 恢复时没有已确认的机器人 ID，将重新 Identify")
+                self._resumable = False
+                self._session_id = ""
+                self._last_seq = None
+                if self._ws is not None and not self._ws.closed:
+                    await self._ws.close()
+                return
             self.ctx.logger.info("QQ 官方 WebSocket Resume 成功")
             await self._report_gateway_ready(True, settings=self._load_settings())
             return
 
         if event_type not in MESSAGE_CREATE_EVENTS:
             self.ctx.logger.debug(f"QQ 官方 WebSocket 忽略事件类型: {event_type}")
+            return
+
+        if not self._connected_account_id:
+            self.ctx.logger.debug("QQ 官方 WebSocket 尚未确认机器人 ID，暂不转发消息")
             return
 
         author = data.get("author")
@@ -746,8 +780,7 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
 
         Bot 身份只使用 READY 事件里的 user.id。AppID 是开放平台凭据，不是平台账号；
         Host 会把 ready=True 携带的 account_id 登记成 Bot 账号。尚未取得 user.id 时
-        拒绝标记就绪，避免 Resume 把 AppID 登记成另一个 Bot。未就绪上报仍会发出，
-        但 account_id 留空，不用 AppID 顶替。
+        拒绝标记就绪；未就绪上报只在身份未知时将 account_id 留空。
         """
 
         metadata: Dict[str, Any] = {}

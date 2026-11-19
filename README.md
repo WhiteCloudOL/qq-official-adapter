@@ -8,7 +8,7 @@
 
 <p align="center">
   <img alt="Version" src="https://img.shields.io/badge/version-1.2.1-2388ff">
-  <img alt="MaiBot SDK" src="https://img.shields.io/badge/MaiBot_SDK-2.8%2B-2f8f9d">
+  <img alt="MaiBot SDK" src="https://img.shields.io/badge/MaiBot_SDK-2.8.0%E2%80%932.23.0-2f8f9d">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab">
   <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-59636e">
 </p>
@@ -16,6 +16,8 @@
 <p align="center">消息接收 · 自然回复 · 图片与表情 · 语音与文件 · 自艾特识别 · 断线恢复</p>
 
 ---
+
+> **迁移建议：** 新安装或已使用新版 MaiBot 的用户，推荐迁移到由 MaiBot 团队维护的内置「QQ 官方机器人适配器」（插件 ID：`Mai-with-u.qq-adapter`）。请参阅 [内置适配器配置指南](https://docs.meowyun.cn/qqbot/maibot/adapters/qq-official/)。切换前请先停用本插件，避免同一个机器人被两个适配器接入；使用文字子频道或频道私信的用户请先核对内置版是否覆盖所需场景。
 
 ## 核心功能
 

@@ -268,3 +268,77 @@ def test_dispatched_message_route_has_no_legacy_identity() -> None:
         assert _state_updates(calls) == []
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("changed_credentials", [
+    {"appid": "new-app-id"},
+    {"app_secret": "new-secret"},
+    {"sandbox": True},
+])
+def test_config_reload_clears_old_bot_identity_after_credential_change(
+    changed_credentials: dict[str, object],
+) -> None:
+    async def scenario() -> None:
+        plugin, calls = _plugin()
+        plugin._connection_settings = plugin.config
+        plugin._connected_account_id = BOT_USER_ID
+        plugin._resumable = True
+        plugin._session_id = "test-session"
+        plugin._last_seq = 42
+        plugin._access_token = "test-token"
+        plugin.set_plugin_config({
+            "plugin": {"enabled": True, "config_version": SUPPORTED_CONFIG_VERSION},
+            "credentials": {"appid": APP_ID, "app_secret": APP_SECRET, **changed_credentials},
+        })
+
+        with pytest.MonkeyPatch.context() as mp:
+            async def idle_connection() -> None:
+                return None
+
+            mp.setattr(plugin, "_run_connection_loop", idle_connection)
+            await plugin._restart_connection_if_needed()
+            assert plugin._connection_task is not None
+            await plugin._connection_task
+
+        assert _state_updates(calls)[0]["account_id"] == BOT_USER_ID
+        assert _state_updates(calls)[0]["metadata"]["appid"] == APP_ID
+        assert _state_updates(calls)[0]["ready"] is False
+        assert plugin._connected_account_id == ""
+        assert plugin._resumable is False
+        assert plugin._session_id == ""
+        assert plugin._last_seq is None
+        assert plugin._access_token is None
+
+        calls.clear()
+        await plugin._handle_dispatch_event({
+            "t": EVENT_READY,
+            "d": {"session_id": "new-test-session", "user": {"id": "new-test-bot"}},
+        })
+        assert _state_updates(calls)[0]["account_id"] == "new-test-bot"
+
+    asyncio.run(scenario())
+
+
+def test_config_reload_keeps_identity_for_unchanged_credentials() -> None:
+    async def scenario() -> None:
+        plugin, calls = _plugin()
+        plugin._connection_settings = plugin.config
+        plugin._connected_account_id = BOT_USER_ID
+        plugin._resumable = True
+        plugin._session_id = "test-session"
+
+        with pytest.MonkeyPatch.context() as mp:
+            async def idle_connection() -> None:
+                return None
+
+            mp.setattr(plugin, "_run_connection_loop", idle_connection)
+            await plugin._restart_connection_if_needed()
+            assert plugin._connection_task is not None
+            await plugin._connection_task
+
+        await plugin._handle_dispatch_event({"t": EVENT_RESUMED, "d": {}})
+        assert [update["ready"] for update in _state_updates(calls)] == [False, True]
+        assert {update["account_id"] for update in _state_updates(calls)} == {BOT_USER_ID}
+        assert plugin._session_id == "test-session"
+
+    asyncio.run(scenario())
