@@ -136,8 +136,6 @@ class QQMessageMixin:
                 raise ValueError("群聊/频道事件缺少发送者 ID")
             user_nickname = self._first_display_text(author, ("username", "nickname")) or user_id
             additional_config: Dict[str, Any] = {
-                "self_id": self._connected_account_id,
-                "platform_io_account_id": self._connected_account_id,
                 "qq_official_message_type": "group",
                 "qq_official_target_type": target_kind,
                 "platform_io_target_group_id": group_id,
@@ -171,8 +169,6 @@ class QQMessageMixin:
             user_nickname = self._first_display_text(author, ("username", "nickname")) or user_id
             target_kind = "direct" if is_guild_direct else "user"
             additional_config = {
-                "self_id": self._connected_account_id,
-                "platform_io_account_id": self._connected_account_id,
                 "qq_official_message_type": "private",
                 "qq_official_target_type": target_kind,
                 "platform_io_target_user_id": user_id,
@@ -246,6 +242,10 @@ class QQMessageMixin:
         }
         if reply_to:
             message_dict["reply_to"] = reply_to
+        # 与网关 update_state 使用同一个 READY user.id。发送者 ID 只留在 user_info。
+        bot_user_id = str(self._connected_account_id or "").strip()
+        if bot_user_id:
+            message_dict["account_id"] = bot_user_id
         return message_dict
 
     @staticmethod
