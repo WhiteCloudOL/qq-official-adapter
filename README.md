@@ -7,10 +7,10 @@
 <p align="center"><strong>基于 QQ 官方能力，为 MaiBot 提供单聊、群聊与频道消息接入</strong></p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.1-2388ff">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.2-2388ff">
   <img alt="MaiBot SDK" src="https://img.shields.io/badge/MaiBot_SDK-2.8.0%E2%80%932.23.0-2f8f9d">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776ab">
-  <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-59636e">
+  <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0--only-59636e">
 </p>
 
 <p align="center">消息接收 · 自然回复 · 图片与表情 · 语音与文件 · 自艾特识别 · 断线恢复</p>
@@ -203,4 +203,4 @@ qq-official-adapter/
 
 ## 许可证
 
-本项目采用 AGPL-3.0 许可证。
+本项目仅采用 [GNU Affero General Public License v3.0（AGPL-3.0-only）](LICENSE)，不授权使用后续版本。
