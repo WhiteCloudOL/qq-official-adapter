@@ -263,7 +263,8 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
 
         await self._disconnect()
         await self._report_gateway_ready(False, settings=self._load_settings())
-        self._connected_account_id = ""
+        # 保留 READY 事件里的机器人用户 ID。配置重载会停掉连接，但 session 仍可 Resume；
+        # 清空后下一次 RESUMED 没有真实身份，会把 AppID 当成新的 Bot 账号上报。
 
     async def _run_connection_loop(self) -> None:
         """维持到 QQ 官方 WebSocket 网关的连接。"""
@@ -630,7 +631,8 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
                 f"from={sender_label}{scope_label} text={plain_text_preview!r}"
             )
 
-        route_metadata: Dict[str, Any] = {"self_id": self._connected_account_id}
+        # 身份只放在消息顶层 account_id。route_metadata 里的 self_id 会被 Host 当成旧归属字段。
+        route_metadata: Dict[str, Any] = {}
 
         try:
             accepted = await self.ctx.gateway.route_message(
@@ -742,9 +744,10 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
     ) -> bool:
         """向 Host 上报消息网关运行状态。
 
-        account_id 优先使用 READY 事件里拿到的 bot user.id
-        （与入站消息 route_metadata.self_id 保持一致，否则 Host 路由键不匹配会丢弃消息）；
-        连接尚未建立时回退到 appid 仅用于标记离线状态。
+        Bot 身份只使用 READY 事件里的 user.id。AppID 是开放平台凭据，不是平台账号；
+        Host 会把 ready=True 携带的 account_id 登记成 Bot 账号。尚未取得 user.id 时
+        拒绝标记就绪，避免 Resume 把 AppID 登记成另一个 Bot。未就绪上报仍会发出，
+        但 account_id 留空，不用 AppID 顶替。
         """
 
         metadata: Dict[str, Any] = {}
@@ -752,7 +755,12 @@ class QQOfficialAdapterPlugin(QQAPIClientMixin, QQMessageMixin, MaiBotPlugin):
             metadata["sandbox"] = bool(settings.credentials.sandbox)
             metadata["intents"] = DEFAULT_INTENTS
             metadata["appid"] = settings.credentials.appid
-        account_id = self._connected_account_id or (settings.credentials.appid if settings else "")
+        account_id = str(self._connected_account_id or "").strip()
+        if ready and not account_id:
+            self.ctx.logger.warning(
+                "QQ 官方网关尚未从 READY 事件取得机器人用户 ID，拒绝用 AppID 登记 Bot 身份"
+            )
+            return False
 
         try:
             return await self.ctx.gateway.update_state(
